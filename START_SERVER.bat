@@ -31,5 +31,8 @@ if not exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" -m pip install -r requirements.txt || (pause & exit /b 1)
 )
 
+rem Install anything new in requirements.txt (after a git pull). Quick when nothing changed.
+".venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check -r requirements.txt || (pause & exit /b 1)
+
 ".venv\Scripts\python.exe" paco_server.py
 pause
