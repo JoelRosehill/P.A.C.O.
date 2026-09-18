@@ -22,7 +22,6 @@ from aiohttp import WSMsgType, web
 from brain import Brain, make_brain
 from ears import Ears
 from listener import Listener
-from voice import SPEAK_RATE, Voice
 
 ROOT = Path(__file__).resolve().parent
 
@@ -85,10 +84,9 @@ def oled_text(text: str) -> str:
 class Hub:
     """Owns the PACO connection, the dashboards and the question pipeline."""
 
-    def __init__(self, brain: Brain, ears: Ears, voice: Voice | None):
+    def __init__(self, brain: Brain, ears: Ears):
         self.brain = brain
         self.ears = ears
-        self.voice = voice          # None when SPEAK=off
         self.device: web.WebSocketResponse | None = None
         self.device_info: dict = {}
         self.dashboards: set[web.WebSocketResponse] = set()
@@ -102,7 +100,6 @@ class Hub:
             "type": "snapshot",
             "device": self.device_info if self.device else None,
             "speech": self.ears.status,
-            "voice": self.voice.status if self.voice else "off",
             "model": f"{self.brain.name} {self.brain.model}",
             "history": list(self.history),
         }
@@ -152,79 +149,17 @@ class Hub:
             try:
                 await self.to_device({"type": "state", "state": "thinking"})
                 await self.broadcast({"type": "live", "state": "thinking", "text": text})
-                answer = await self._answer(text, source=source)
-                if self.voice and answer:
-                    await self._speak(answer)
+                await self._answer(text, source=source)
             finally:
                 if self.listener:
                     self.listener.paused = False
 
-    async def _answer(self, text: str, source: str) -> str:
+    async def _answer(self, text: str, source: str) -> None:
         started = time.monotonic()
         answer = await self.brain.ask(text)
         log.info("Q (%s): %r -> A (%.1fs): %r", source, text,
                  time.monotonic() - started, answer)
         await self._reply(heard=text, answer=answer, source=source)
-        return answer
-
-    async def _speak(self, text: str) -> None:
-        """Say the answer through PACO's speaker, streamed at playback speed.
-
-        Audio goes out as binary WebSocket frames (u8 at SPEAK_RATE) between
-        speak_start / speak_end. The listener stays paused (see handle_text) so
-        PACO doesn't hear itself.
-        """
-        device = self.device
-        if device is None or device.closed:
-            return
-        queue: asyncio.Queue[bytes | None] = asyncio.Queue()
-        loop = asyncio.get_running_loop()
-
-        def synthesize() -> None:  # runs in a worker thread
-            try:
-                for pcm in self.voice.speak(text):
-                    loop.call_soon_threadsafe(queue.put_nowait, pcm)
-            finally:
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-
-        loop.run_in_executor(None, synthesize)
-        await self.to_device({"type": "speak_start", "rate": SPEAK_RATE})
-
-        chunk = SPEAK_RATE // 10          # 100 ms of audio per frame
-        lead = SPEAK_RATE // 2            # PACO buffers this much before it starts
-        sent = 0
-        started = None
-        pending = b""
-        try:
-            while True:
-                pcm = await queue.get()
-                if pcm is None:
-                    break
-                pending += pcm
-                while len(pending) >= chunk:
-                    frame, pending = pending[:chunk], pending[chunk:]
-                    if device.closed:
-                        return
-                    await device.send_bytes(frame)
-                    sent += len(frame)
-                    started = started or time.monotonic()
-                    # Stay about `lead` ahead of playback so PACO's small buffer never overflows.
-                    ahead = sent - lead - (time.monotonic() - started) * SPEAK_RATE
-                    if ahead > 0:
-                        await asyncio.sleep(ahead / SPEAK_RATE)
-            if pending and not device.closed:
-                await device.send_bytes(pending)
-                sent += len(pending)
-        except ConnectionError:
-            return
-        finally:
-            if not device.closed:
-                await self.to_device({"type": "speak_end"})
-        # Keep the mic muted until PACO has finished playing (plus a short tail).
-        if started:
-            remaining = sent / SPEAK_RATE - (time.monotonic() - started) + 0.4
-            if remaining > 0:
-                await asyncio.sleep(remaining)
 
     async def _reply(self, heard: str, answer: str, source: str) -> None:
         await self.to_device({"type": "reply", "heard": oled_text(heard), "text": oled_text(answer)})
@@ -408,13 +343,9 @@ def main() -> None:
                 os.environ.get("WHISPER_LIVE_MODEL", "base.en"))
     ears.load_in_background()
     brain = make_brain()
-    voice = None
-    if os.environ.get("SPEAK", "on").strip().lower() not in ("off", "0", "no", "false"):
-        voice = Voice(os.environ.get("VOICE", "en_US-lessac-medium"))
-        voice.load_in_background()
 
     app = web.Application()
-    app["hub"] = Hub(brain, ears, voice)
+    app["hub"] = Hub(brain, ears)
     app["token"] = token
     app["dashboard_password"] = dashboard_password
     app["sessions"] = set()

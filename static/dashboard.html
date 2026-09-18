@@ -102,7 +102,7 @@ function renderDevice(snap) {
               ["Connected", fmtDuration(Date.now() / 1000 - d.since)]);
     if (d.heap) rows.push(["Free RAM", `${Math.round(d.heap / 1024)} KB`]);
   }
-  rows.push(["Speech", snap.speech], ["Voice", snap.voice || "off"], ["Brain", snap.model]);
+  rows.push(["Speech", snap.speech], ["Brain", snap.model]);
   $("info").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd></dd>`).join("");
   $("info").querySelectorAll("dd").forEach((el, i) => el.textContent = rows[i][1]);
 }
