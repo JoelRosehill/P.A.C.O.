@@ -72,6 +72,14 @@ PACO saves the address and reconnects on its own — no reflash needed.
   A tunnel with `tls` (option B) avoids that. If a token leaks, put a new one in
   `.env` and `projects\paco\secrets.h`, then rebuild and reflash PACO.
 
+## Talking back
+
+With a speaker on PACO's GPIO25, answers are also spoken. The server turns
+them into speech with Piper (local, no cloud) and streams the audio to PACO
+while the mic is muted. `SPEAK=off` turns it off, `VOICE` picks another Piper
+voice, `SPEAKER_VOLUME` (0.1-1.0) sets the level. A bare speaker on the pin is
+quiet; a PAM8403 amplifier board between GPIO25 and the speaker makes it loud.
+
 ## Settings (`.env`)
 
 | Setting | What it does |
