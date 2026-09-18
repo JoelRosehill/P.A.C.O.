@@ -1,0 +1,5 @@
+aiohttp>=3.10
+anthropic>=0.70
+faster-whisper>=1.1
+numpy>=1.26
+pyserial>=3.5

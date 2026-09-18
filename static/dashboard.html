@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P.A.C.O. dashboard</title>
+<style>
+  :root { --bg:#0e1116; --panel:#171b22; --line:#2a303a; --text:#e6e9ee; --dim:#8a93a3;
+          --accent:#5cc8ff; --ok:#4ade80; --bad:#ff6b6b; --warn:#fbbf24; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:24px 16px 48px; }
+  header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:20px; }
+  h1 { margin:0; font:700 28px/1 var(--mono); letter-spacing:.06em; }
+  header small { color:var(--dim); }
+  header a { color:var(--dim); font-size:13px; }
+  .grid { display:grid; grid-template-columns: 300px 1fr; gap:16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .panel h2 { margin:0 0 12px; font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); }
+  .status { display:flex; align-items:center; gap:10px; font-size:18px; font-weight:600; margin-bottom:12px; }
+  .dot { width:12px; height:12px; border-radius:50%; background:var(--bad); flex:none; }
+  .dot.on { background:var(--ok); box-shadow:0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); }
+  dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:13px; }
+  dt { color:var(--dim); } dd { margin:0; font-family:var(--mono); overflow-wrap:anywhere; }
+  .oled { margin-top:16px; background:#000; border-radius:6px; padding:8px 10px; aspect-ratio: 2 / 1;
+          font:12px/1.35 var(--mono); color:#9fe8ff; overflow:hidden; border:1px solid #222; }
+  .oled .heard { color:#5b8fa3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-bottom:1px solid #1d3440; margin-bottom:3px; }
+  form.ask { display:flex; gap:8px; margin-bottom:16px; }
+  form.ask input { flex:1; min-width:0; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:15px; }
+  form.ask input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#04121b; font-weight:600; font-size:14px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--dim); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  .log { display:flex; flex-direction:column; gap:10px; }
+  .ex { border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .ex .meta { font-size:12px; color:var(--dim); margin-bottom:4px; }
+  .ex .q { color:var(--dim); } .ex .q::before { content:"You: "; }
+  .ex .a { margin-top:2px; } .ex .a::before { content:"PACO: "; color:var(--accent); font-weight:600; }
+  .empty { color:var(--dim); font-size:14px; }
+  .row { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .row h2 { margin:0; }
+  .meter { height:10px; border-radius:5px; background:var(--bg); border:1px solid var(--line); overflow:hidden; margin:4px 0 14px; }
+  .meter div { height:100%; width:0; background:linear-gradient(90deg, var(--ok), var(--warn) 75%, var(--bad)); transition:width .1s linear; }
+  .live { font-size:13px; color:var(--dim); min-height:20px; margin-bottom:10px; }
+  .live b { color:var(--text); font-weight:600; }
+  .conn { font-size:12px; color:var(--warn); display:none; margin-bottom:12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>P.A.C.O.</h1><small>Personal Assistant for Computational Operations</small></div>
+    <a href="/logout">Sign out</a>
+  </header>
+  <div class="conn" id="conn">Connection to the server lost - reconnecting...</div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Device</h2>
+      <div class="status"><span class="dot" id="dot"></span><span id="state">Offline</span></div>
+      <h2>Sound</h2>
+      <div class="meter"><div id="meter"></div></div>
+      <div class="live" id="live">&nbsp;</div>
+      <dl id="info"></dl>
+      <div class="oled" id="oled"><div class="heard" id="oledHeard">&nbsp;</div><div id="oledText">Waiting for PACO...</div></div>
+    </section>
+
+    <section class="panel">
+      <form class="ask" id="ask">
+        <input id="q" placeholder="Ask PACO something (the answer shows on its screen)" autocomplete="off" maxlength="500">
+        <button type="submit">Ask</button>
+      </form>
+      <div class="row"><h2>Conversation</h2><button class="ghost" id="reset" type="button">Clear memory</button></div>
+      <div class="log" id="log"><div class="empty">Nothing yet. Talk to PACO or type a question above.</div></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws, history = [];
+
+function fmtTime(t) { return new Date(t * 1000).toLocaleTimeString(); }
+function fmtDuration(s) {
+  s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s % 60}s` : `${s}s`;
+}
+function signal(rssi) {
+  if (rssi == null) return "-";
+  const q = rssi > -55 ? "excellent" : rssi > -67 ? "good" : rssi > -75 ? "fair" : "weak";
+  return `${rssi} dBm (${q})`;
+}
+
+function renderDevice(snap) {
+  const d = snap.device;
+  $("dot").classList.toggle("on", !!d);
+  $("state").textContent = d ? "Online" : "Offline";
+  const rows = [];
+  if (d) {
+    rows.push(["Firmware", d.version || "-"], ["Audio", d.rate ? `${d.rate / 1000} kHz stream` : "-"], ["Address", d.ip || "-"], ["Wi-Fi", signal(d.rssi)],
+              ["Connected", fmtDuration(Date.now() / 1000 - d.since)]);
+    if (d.heap) rows.push(["Free RAM", `${Math.round(d.heap / 1024)} KB`]);
+  }
+  rows.push(["Speech", snap.speech], ["Brain", snap.model]);
+  $("info").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd></dd>`).join("");
+  $("info").querySelectorAll("dd").forEach((el, i) => el.textContent = rows[i][1]);
+}
+
+function renderLog() {
+  const log = $("log");
+  if (!history.length) return;
+  log.innerHTML = "";
+  for (const e of [...history].reverse()) {
+    const div = document.createElement("div");
+    div.className = "ex";
+    div.innerHTML = `<div class="meta"></div><div class="q"></div><div class="a"></div>`;
+    div.querySelector(".meta").textContent = `${fmtTime(e.t)} · ${e.source}`;
+    div.querySelector(".q").textContent = e.heard || "(nothing understood)";
+    div.querySelector(".a").textContent = e.answer;
+    log.appendChild(div);
+  }
+  const last = history[history.length - 1];
+  $("oledHeard").textContent = last.heard ? "> " + last.heard : " ";
+  $("oledText").textContent = last.answer;
+}
+
+function showLive(msg) {
+  const live = $("live");
+  const label = { listening: "Listening", partial: "Hearing", thinking: "Thinking",
+                  ignored: "Ignored (no \"PACO\")", idle: "" }[msg.state] ?? "";
+  if (!label) { live.innerHTML = "&nbsp;"; return; }
+  live.innerHTML = `<b></b> <span></span>`;
+  live.querySelector("b").textContent = label + (msg.text ? ":" : "...");
+  live.querySelector("span").textContent = msg.text || "";
+  if (msg.state === "partial" || msg.state === "listening") {
+    $("oledHeard").textContent = "listening...";
+    $("oledText").textContent = msg.text || "";
+  } else if (msg.state === "thinking") {
+    $("oledHeard").textContent = "> " + msg.text;
+    $("oledText").textContent = "Thinking...";
+  }
+}
+
+function connect() {
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ui`);
+  ws.onopen = () => { $("conn").style.display = "none"; };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "snapshot") { renderDevice(msg); history = msg.history; renderLog(); }
+    if (msg.type === "exchange") { history.push(msg); renderLog(); $("live").innerHTML = "&nbsp;"; }
+    if (msg.type === "level") { $("meter").style.width = (msg.v * 100).toFixed(0) + "%"; }
+    if (msg.type === "live") { showLive(msg); }
+  };
+  ws.onclose = () => {
+    $("conn").style.display = "block";
+    setTimeout(connect, 3000);
+  };
+}
+
+$("ask").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const text = $("q").value.trim();
+  if (!text || !ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: "ask", text }));
+  $("q").value = "";
+  $("oledHeard").textContent = "> " + text;
+  $("oledText").textContent = "Thinking...";
+});
+$("reset").addEventListener("click", () => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: "reset" })));
+
+connect();
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P.A.C.O. sign in</title>
+<style>
+  :root { --bg:#0e1116; --panel:#171b22; --line:#2a303a; --text:#e6e9ee; --dim:#8a93a3; --accent:#5cc8ff; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding:16px; }
+  form { width:100%; max-width:340px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:28px; }
+  h1 { margin:0; font: 700 26px/1.1 ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing:.06em; }
+  p { margin:6px 0 22px; color:var(--dim); font-size:13px; }
+  input { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:15px; }
+  input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  button { width:100%; margin-top:12px; padding:11px; border:0; border-radius:8px; background:var(--accent); color:#04121b; font-weight:600; font-size:15px; cursor:pointer; }
+  .err { color:var(--bad); font-size:13px; margin:10px 0 0; display:none; }
+</style>
+</head>
+<body>
+<form method="post" action="/login">
+  <h1>P.A.C.O.</h1>
+  <p>Personal Assistant for Computational Operations</p>
+  <input type="password" name="password" placeholder="Dashboard password" autofocus required>
+  <button type="submit">Sign in</button>
+  <div class="err" id="err">Wrong password.</div>
+</form>
+<script>
+  if (location.search.includes("failed")) document.getElementById("err").style.display = "block";
+</script>
+</body>
+</html>

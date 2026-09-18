@@ -1,0 +1,13 @@
+# Secrets - API keys, PACO's token, dashboard password. Never commit.
+.env
+
+# Machine-specific / regenerated on first start
+.venv/
+models/
+__pycache__/
+*.pyc
+
+# Runtime output
+logs/
+recordings/
+*.zip
